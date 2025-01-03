@@ -1,0 +1,102 @@
+{
+    "categories": {
+        "auth": {
+            "description": "Authentication and authorization testing scripts.",
+            "scripts": [
+                "ftp-anon",
+                "ssh-brute",
+                "smb-enum-users"
+            ]
+        },
+        "discovery": {
+            "description": "Scripts for host and service discovery.",
+            "scripts": [
+                "dns-zone-transfer",
+                "http-title",
+                "ssl-cert",
+                "snmp-info",
+                "mysql-info"
+            ]
+        },
+        "vuln": {
+            "description": "Scripts focused on identifying vulnerabilities.",
+            "scripts": [
+                "smb-vuln-ms17-010",
+                "http-vuln-cve2017-5638",
+                "ssl-poodle",
+                "ftp-vsftpd-backdoor"
+            ]
+        },
+        "safe": {
+            "description": "Non-intrusive scripts that are generally safe to run.",
+            "scripts": [
+                "ssl-cert",
+                "mysql-info",
+                "http-title"
+            ]
+        },
+        "intrusive": {
+            "description": "Scripts that might disrupt the target service.",
+            "scripts": [
+                "ssh-brute",
+                "dns-zone-transfer",
+                "http-sql-injection"
+            ]
+        },
+        "brute": {
+            "description": "Brute force attack scripts.",
+            "scripts": [
+                "ftp-brute",
+                "ssh-brute",
+                "smtp-brute"
+            ]
+        }
+    },
+    "services": {
+        "http": {
+            "description": "Scripts targeting HTTP/HTTPS services.",
+            "categories": ["discovery", "vuln", "safe"],
+            "scripts": [
+                "http-title",
+                "http-headers",
+                "http-sql-injection",
+                "http-vuln-cve2017-5638",
+                "http-methods"
+            ]
+        },
+        "ftp": {
+            "description": "Scripts targeting FTP services.",
+            "categories": ["auth", "vuln", "brute"],
+            "scripts": [
+                "ftp-anon",
+                "ftp-brute",
+                "ftp-vsftpd-backdoor"
+            ]
+        },
+        "ssh": {
+            "description": "Scripts targeting SSH services.",
+            "categories": ["auth", "brute", "safe"],
+            "scripts": [
+                "ssh-brute",
+                "ssh-auth-methods"
+            ]
+        },
+        "smb": {
+            "description": "Scripts targeting SMB services.",
+            "categories": ["auth", "vuln", "discovery"],
+            "scripts": [
+                "smb-enum-users",
+                "smb-vuln-ms17-010",
+                "smb-os-discovery"
+            ]
+        },
+        "dns": {
+            "description": "Scripts targeting DNS services.",
+            "categories": ["discovery", "vuln"],
+            "scripts": [
+                "dns-zone-transfer",
+                "dns-nsec-enum"
+            ]
+        }
+    }
+}

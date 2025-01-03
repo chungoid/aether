@@ -1,0 +1,18 @@
+{
+  "discovery": {
+    "args": "-sn",
+    "description": "Host discovery scan"
+  },
+  "fast_all_port": {
+    "args": "-Pn -p-",
+    "description": "Basic port scan for common ports"
+  },
+  "port_scan": {
+    "args": "-sV --script vuln",
+    "description": "Vulnerability scan using Nmap scripts"
+  },
+  "vulnerability_scan": {
+    "args": "-sV --script vuln",
+    "description": "Vulnerability scan using Nmap scripts"
+  }
+}

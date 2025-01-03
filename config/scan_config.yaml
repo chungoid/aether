@@ -1,2 +1,0 @@
-discovery:
-  command: "{target_cidr} -sn -oX results/discovery.xml"

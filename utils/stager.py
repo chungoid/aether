@@ -133,4 +133,24 @@ def determine_target(args):
             exit(1)
 
 def sanitize_target(target):
-    return target.replace("/", "_")
+    """
+    Sanitize and validate an IPv4 target.
+
+    Args:
+        target (str): The target string to sanitize.
+
+    Returns:
+        str: A sanitized IPv4 address.
+
+    Raises:
+        ValueError: If the target is not a valid IPv4 address.
+    """
+    # Strip unwanted characters (e.g., parentheses, spaces)
+    stripped_target = target.strip("() ").strip()
+
+    try:
+        # Validate and return the sanitized IPv4 address
+        ip = ipaddress.IPv4Address(stripped_target)
+        return str(ip)
+    except ipaddress.AddressValueError:
+        raise ValueError(f"Invalid IPv4 address: {target}")

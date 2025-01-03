@@ -1,42 +1,42 @@
 import logging
 import os
 
-def create_logger(name, log_file, level=logging.DEBUG):
+def create_logger(name, log_file, level=logging.INFO):
     """
-    Setup a logger with the specified name, log file, and log level.
+    Creates and configures a logger for the application.
 
     Args:
         name (str): Name of the logger.
-        log_file (str): File to log messages.
-        level (int): Logging level (e.g., logging.INFO, logging.DEBUG).
+        log_file (str): Path to the log file.
+        level (int): Logging level (default: logging.INFO).
 
     Returns:
         logging.Logger: Configured logger instance.
     """
-    # Ensure the logs directory exists
+    # Ensure the directory for the log file exists
     log_dir = os.path.dirname(log_file)
-    os.makedirs(log_dir, exist_ok=True)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
 
-    # Configure logger
+    # Create and configure the logger
     logger = logging.getLogger(name)
     logger.setLevel(level)
 
-    # File handler
+    # Create a file handler
     file_handler = logging.FileHandler(log_file)
     file_handler.setLevel(level)
 
-    # Console handler
+    # Create a console handler for debugging
     console_handler = logging.StreamHandler()
     console_handler.setLevel(level)
 
-    # Formatter
+    # Define a standard log format
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
 
-    # Add handlers
-    if not logger.handlers:
-        logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+    # Add handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
 
     return logger

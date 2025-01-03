@@ -1,131 +1,118 @@
 import asyncio
-import logging
-import random
-from core.hostmanager import HostManager
+import json
+from typing import Dict, List, Any
 from core.scanmanager import ScanManager
-
+from core.hostmanager import HostManager
+from random import choice
 
 class WorkflowManager:
-    """
-    Manages dynamic workflows for handling scan results and integrating external tools.
-    """
+    def __init__(self):
+        self.scan_manager = ScanManager()
+        self.hosts: Dict[str, HostManager] = {}
 
-    def __init__(self, scan_manager: ScanManager):
+         # Host Discovery
+    async def handle_workflow(self, target_range: str):
+
+        discovery_results = await self.run_scan("discovery", target_range)
+        self.process_discovery_results(discovery_results)
+
+        # Port Discovery
+        port_scan_tasks = [self.run_scan("port_scan", host) for host in self.hosts]
+        port_results = await asyncio.gather(*port_scan_tasks)
+        self.process_port_results(port_results)
+
+        # Service Identification
+        service_scan_tasks = [self.run_scan("service_scan", host) for host in self.hosts]
+        service_results = await asyncio.gather(*service_scan_tasks)
+        self.process_service_results(service_results)
+
+        # OS Detection
+        os_scan_tasks = [self.run_scan("os_detection", host) for host in self.hosts]
+        os_results = await asyncio.gather(*os_scan_tasks)
+        self.process_os_results(os_results)
+
+        # Dynamic Scripted Scans
+        await self.run_dynamic_scans()
+
+        # High Resource / Suggestion Storage
+        self.save_suggestions_to_file()
+
+    async def run_scan(self, scan_type: str, target: str) -> Dict[str, Any]:
         """
-        Initialize the WorkflowManager.
-
-        :param scan_manager: Instance of ScanManager to handle scans.
+        Run a specific scan type using ScanManager.
         """
-        self.scan_manager = scan_manager
-        self.hosts = {}
-        self.logger = logging.getLogger("workflowmgr")
-        self.logger.setLevel(logging.INFO)
+        scan_config = self.scan_manager.scan_config.get(scan_type, {})
+        args = scan_config.get("args", "")
+        return await self.scan_manager.run_scan(target, args)
 
-    async def handle_dynamic_workflows(self, ip: str):
+    def process_discovery_results(self, results: Dict[str, Any]):
         """
-        Handle dynamic workflows for a host based on its scan data and scan_config.json.
-
-        :param ip: IP address of the host.
+        Process host discovery results and initialize HostManager instances.
         """
-        host = self.hosts[ip]
-
-        for port in host.open_ports:
-            service = host.services.get(port, "Unknown").lower()
-
-            # Fetch the dynamic workflow from scan_config.json
-            service_workflows = self.scan_manager.scan_config.get("service_workflows", {}).get(service, [])
-
-            if not service_workflows:
-                self.logger.info(f"No workflows defined for service {service} on {ip}:{port}.")
-                continue
-
-            self.logger.info(f"Executing workflows for {service} on {ip}:{port}.")
-
-            for workflow in service_workflows:
-                try:
-                    workflow_type = workflow.get("type")
-                    if workflow_type == "nse":
-                        nse_script = workflow.get("script")
-                        if nse_script:
-                            self.logger.info(f"Running NSE script {nse_script} on {ip}:{port}.")
-                            scan_id = await self.scan_manager.start_scan(
-                                target=f"{ip}:{port}", scan_type="custom", options=f"--script {nse_script}"
-                            )
-                            result = await self.scan_manager.get_scan_results(scan_id)
-                            host.update_from_scan(f"nse_{nse_script}", result)
-
-                    elif workflow_type == "external_tool":
-                        command = workflow.get("command").format(ip=ip, port=port)
-                        self.logger.info(f"Running external tool: {command}")
-                        result = await self.run_external_tool(command)
-                        host.update_from_scan(f"external_{workflow.get('command').split()[0]}", result)
-
-                    else:
-                        self.logger.warning(f"Unsupported workflow type: {workflow_type} for service {service}.")
-
-                except Exception as e:
-                    self.logger.error(f"Error executing workflow for {service} on {ip}:{port}: {e}")
-
-    async def run_external_tool(self, command: str) -> str:
-        """
-        Run an external tool asynchronously.
-
-        :param command: The command to run.
-        :return: The output from the tool.
-        """
-        process = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await process.communicate()
-        if process.returncode != 0:
-            self.logger.error(f"Command failed with error: {stderr.decode()}")
-            raise RuntimeError(f"Command failed: {stderr.decode()}")
-        return stdout.decode()
-
-    async def discover_hosts(self, subnet: str):
-        """
-        Discover hosts on a subnet using ScanManager.
-
-        :param subnet: The subnet to scan (e.g., 192.168.1.0/24).
-        """
-        self.logger.info(f"Starting discovery scan on subnet: {subnet}")
-        scan_id = await self.scan_manager.start_scan(target=subnet, scan_type="discovery")
-        scan_results = await self.scan_manager.get_scan_results(scan_id)
-
-        # Process discovered hosts
-        for ip, details in scan_results.items():
-            if details["status"] == "up":
-                self.logger.info(f"Discovered live host: {ip}")
+        for ip, details in results.items():
+            if details.get("status") == "up":
                 self.hosts[ip] = HostManager(ip)
 
-    async def perform_port_scan(self, ip: str):
+    def process_port_results(self, results: List[Dict[str, Any]]):
         """
-        Perform a port scan on a host.
-
-        :param ip: IP address of the host.
+        Process port scan results and update HostManager instances.
         """
-        self.logger.info(f"Performing port scan on host: {ip}")
-        scan_id = await self.scan_manager.start_scan(target=ip, scan_type="port_scan")
-        scan_results = await self.scan_manager.get_scan_results(scan_id)
+        for result in results:
+            ip = result["host"]
+            self.hosts[ip].update_from_scan("port_scan", result)
 
-        # Update host with port scan results
-        host = self.hosts[ip]
-        host.update_from_scan("port_scan", scan_results)
-
-    async def run_workflow(self, subnet: str):
+    def process_service_results(self, results: List[Dict[str, Any]]):
         """
-        Run the entire workflow starting with discovery scan.
-
-        :param subnet: The subnet to scan.
+        Process service scan results and update HostManager instances.
         """
-        await self.discover_hosts(subnet)
+        for result in results:
+            ip = result["host"]
+            self.hosts[ip].update_from_scan("service_scan", result)
 
-        # Perform port scans for each live host
-        for ip in list(self.hosts.keys()):
-            await self.perform_port_scan(ip)
+    def process_os_results(self, results: List[Dict[str, Any]]):
+        """
+        Process OS detection results and update HostManager instances.
+        """
+        for result in results:
+            ip = result["host"]
+            self.hosts[ip].update_from_scan("os_detection", result)
 
-        # Handle dynamic workflows for each host
-        for ip in list(self.hosts.keys()):
-            await self.handle_dynamic_workflows(ip)
+    async def run_dynamic_scans(self):
+        """
+        Run service-specific scans dynamically based on gathered data.
+        """
+        for ip, host in self.hosts.items():
+            for port in host.open_ports:
+                service = host.services.get(port, "unknown")
+                if service.startswith("http"):
+                    await self.run_web_scans(ip, port)
+                elif service.startswith("smb"):
+                    await self.run_smb_scans(ip)
+                elif service.startswith("ssh"):
+                    await self.run_ssh_scans(ip)
+
+    async def run_web_scans(self, ip: str, port: int):
+        """
+        Run web-specific scans.
+        """
+        print(f"Running web scans for {ip}:{port}...")
+
+    async def run_smb_scans(self, ip: str):
+        """
+        Run SMB-specific scans.
+        """
+        print(f"Running SMB scans for {ip}...")
+
+    async def run_ssh_scans(self, ip: str):
+        """
+        Run SSH-specific scans.
+        """
+        print(f"Running SSH scans for {ip}...")
+
+    def save_suggestions_to_file(self, file_path="suggestions.json"):
+        """
+        Save deferred suggestions to a JSON file for user review.
+        """
+        suggestions = {ip: host.metadata.get("suggestions", []) for ip, host in self.hosts.items()}
+        with open(file_path, "w") as file:
+            json.dump(suggestions, file, indent=4)

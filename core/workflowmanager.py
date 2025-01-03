@@ -1,118 +1,93 @@
 import asyncio
+import os
 import json
-from typing import Dict, List, Any
 from core.scanmanager import ScanManager
 from core.hostmanager import HostManager
-from random import choice
+from config.config import NSE_CONFIG_PATH
+
+
+class Phase:
+    def __init__(self, phase_name, workflow_manager_instance):
+        self.phase_name = phase_name
+        self.workflow_manager_instance = workflow_manager_instance
+
+    async def execute(self):
+        raise NotImplementedError("Subclasses must implement the execute method.")
+
+
+class TemplatePhase(Phase):
+    async def execute(self):
+        tasks = []
+        for target_cidr in self.workflow_manager_instance.workflow_targets:  # More descriptive
+            tasks.append(
+                self.workflow_manager_instance.scan_manager_instance.run_discovery(target_cidr)
+            )
+
+        discovery_results = await asyncio.gather(*tasks)
+
+        for result in discovery_results:
+            for ip_address, details in result.items():
+                if details.get("state") == "up":  # Using `state` to identify live hosts
+                    host_manager_instance = HostManager(ip_address=ip_address)
+                    host_manager_instance.update_metadata("discovered", True)
+                    self.workflow_manager_instance.workflow_hosts[ip_address] = host_manager_instance
+
+
+class TemplatePhase2(Phase):
+    async def execute(self):
+        tasks = []
+        for host_instance in self.workflow_manager_instance.workflow_hosts.values():
+            nse_scripts = ",".join(
+                self.workflow_manager_instance.nse_configuration["categories"]["vuln"]["scripts"]
+            )
+            additional_arguments = f"--script {nse_scripts}"
+            scan_id = await self.workflow_manager_instance.scan_manager_instance.start_scan(
+                host_instance.ip_address, scan_type="vulnerability", additional_args=additional_arguments
+            )
+            tasks.append((host_instance, scan_id))
+
+        for host_instance, scan_id in tasks:
+            result = await self.workflow_manager_instance.scan_manager_instance.get_scan_results(scan_id)
+            host_instance.update_from_scan("vulnerability", result)
+
 
 class WorkflowManager:
-    def __init__(self):
-        self.scan_manager = ScanManager()
-        self.hosts: Dict[str, HostManager] = {}
+    def __init__(self, scan_manager_instance: ScanManager, results_dir, workflow_targets: list):
+        """
+        Initialize WorkflowManager with all components needed to manage phases.
+        ie; config triggers, and create new tool phases based on triggers.
 
-         # Host Discovery
-    async def handle_workflow(self, target_range: str):
+        Args:
+            scan_manager_instance (ScanManager): Manages scanning-related operations.
+            workflow_targets (list): List of CIDR ranges or IP addresses to target.
+        """
+        self.scan_manager_instance = scan_manager_instance
+        self.workflow_targets = workflow_targets
+        self.workflow_hosts = {}
+        self.results_dir = results_dir
+        self.workflow_phases = [
+            TemplatePhase("Template Enumeration", self),
+            TemplatePhase2("Template Tool Usage", self),
+        ]
+        self.nse_configuration = self.load_nse_configuration()  # Avoids shadowing `nse_config`
 
-        discovery_results = await self.run_scan("discovery", target_range)
-        self.process_discovery_results(discovery_results)
+    @staticmethod
+    def load_nse_configuration():
+        """
+        Load the NSE configuration from a JSON file.
 
-        # Port Discovery
-        port_scan_tasks = [self.run_scan("port_scan", host) for host in self.hosts]
-        port_results = await asyncio.gather(*port_scan_tasks)
-        self.process_port_results(port_results)
+        Returns:
+            dict: Parsed NSE configuration.
+        """
+        if not os.path.exists(NSE_CONFIG_PATH):
+            raise FileNotFoundError(f"NSE config file not found at {NSE_CONFIG_PATH}")
+        with open(NSE_CONFIG_PATH, "r") as file:
+            return json.load(file)
 
-        # Service Identification
-        service_scan_tasks = [self.run_scan("service_scan", host) for host in self.hosts]
-        service_results = await asyncio.gather(*service_scan_tasks)
-        self.process_service_results(service_results)
-
-        # OS Detection
-        os_scan_tasks = [self.run_scan("os_detection", host) for host in self.hosts]
-        os_results = await asyncio.gather(*os_scan_tasks)
-        self.process_os_results(os_results)
-
-        # Dynamic Scripted Scans
-        await self.run_dynamic_scans()
-
-        # High Resource / Suggestion Storage
-        self.save_suggestions_to_file()
-
-    async def run_scan(self, scan_type: str, target: str) -> Dict[str, Any]:
+    async def execute_workflow(self):
         """
-        Run a specific scan type using ScanManager.
+        Execute all workflow phases sequentially.
         """
-        scan_config = self.scan_manager.scan_config.get(scan_type, {})
-        args = scan_config.get("args", "")
-        return await self.scan_manager.run_scan(target, args)
-
-    def process_discovery_results(self, results: Dict[str, Any]):
-        """
-        Process host discovery results and initialize HostManager instances.
-        """
-        for ip, details in results.items():
-            if details.get("status") == "up":
-                self.hosts[ip] = HostManager(ip)
-
-    def process_port_results(self, results: List[Dict[str, Any]]):
-        """
-        Process port scan results and update HostManager instances.
-        """
-        for result in results:
-            ip = result["host"]
-            self.hosts[ip].update_from_scan("port_scan", result)
-
-    def process_service_results(self, results: List[Dict[str, Any]]):
-        """
-        Process service scan results and update HostManager instances.
-        """
-        for result in results:
-            ip = result["host"]
-            self.hosts[ip].update_from_scan("service_scan", result)
-
-    def process_os_results(self, results: List[Dict[str, Any]]):
-        """
-        Process OS detection results and update HostManager instances.
-        """
-        for result in results:
-            ip = result["host"]
-            self.hosts[ip].update_from_scan("os_detection", result)
-
-    async def run_dynamic_scans(self):
-        """
-        Run service-specific scans dynamically based on gathered data.
-        """
-        for ip, host in self.hosts.items():
-            for port in host.open_ports:
-                service = host.services.get(port, "unknown")
-                if service.startswith("http"):
-                    await self.run_web_scans(ip, port)
-                elif service.startswith("smb"):
-                    await self.run_smb_scans(ip)
-                elif service.startswith("ssh"):
-                    await self.run_ssh_scans(ip)
-
-    async def run_web_scans(self, ip: str, port: int):
-        """
-        Run web-specific scans.
-        """
-        print(f"Running web scans for {ip}:{port}...")
-
-    async def run_smb_scans(self, ip: str):
-        """
-        Run SMB-specific scans.
-        """
-        print(f"Running SMB scans for {ip}...")
-
-    async def run_ssh_scans(self, ip: str):
-        """
-        Run SSH-specific scans.
-        """
-        print(f"Running SSH scans for {ip}...")
-
-    def save_suggestions_to_file(self, file_path="suggestions.json"):
-        """
-        Save deferred suggestions to a JSON file for user review.
-        """
-        suggestions = {ip: host.metadata.get("suggestions", []) for ip, host in self.hosts.items()}
-        with open(file_path, "w") as file:
-            json.dump(suggestions, file, indent=4)
+        for phase in self.workflow_phases:
+            print(f"Executing phase: {phase.phase_name}")
+            await phase.execute()

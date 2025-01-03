@@ -6,33 +6,22 @@ import json, os
 class ScanManager:
 
     def __init__(self, instance_id=None, path=None):
-        # Core
         self._created_at = self.get_current_time()
         self.instance_id = instance_id or self.generate_instance_id()
-
-        # Spammer
         self.logger = create_logger("scansmgr", f"logs/scansmgr_{self.instance_id}.log")
-
-        # Config
         self.scan_config = self.load_scan_config()
 
-        # Metadata
         self.metadata = {
             "instance_id": self.instance_id,
             "scan_config": self.scan_config,
         }
 
-        # like a real manager, don't care how u do it just get it done
         self.nmap_async = NmapAsync(path=path)
-
-        # Tracking
         self.active_scans = {}
         self.scan_results = {}
         self.scan_status = {}
         self.progress = {}
         self.errors = []
-
-        # Registries
         self.update_callbacks = []
         self.parser_registry = {}
 

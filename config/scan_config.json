@@ -3,8 +3,8 @@
     "args": "-sn",
     "description": "Host discovery scan"
   },
-  "fast_all_port": {
-    "args": "-Pn -p-",
+  "stealth_all_port": {
+    "args": "-Ss -p- -T4",
     "description": "Basic port scan for common ports"
   },
   "port_scan": {
